@@ -1,77 +1,120 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
+#include "client.h"
+#include <fcntl.h>
+#include <pthread.h>
 
-void error(const char *msg)
-{
-    perror(msg);
-    exit(1);
-}
+/* --------- Function Prototypes --------- */
+void *client_listen(void *arg);
+void *client_respond(void *arg);
+void error(const char *msg);
+/* ------- End Function Prototypes ------- */
+
+client_data_t clnt_data;
 
 int main(int argc, char *argv[])
 {
-    int sockfd, portno, n;
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
-    char buffer[256];
 
-    if (argc < 3)
+  pthread_t thrListen, thrRespond;
+  void *thrListen_ret;
+  void *thrRespond_ret;
+
+  if (argc < 3)
+  {
+    fprintf(stderr, "usage %s hostname port\n", argv[0]);
+    exit(0);
+  }
+
+  clnt_data.portno = atoi(argv[2]);
+  clnt_data.sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  // int flags = fcntl(clnt_data.sockfd, F_GETFL, 0);
+  // fcntl(clnt_data.sockfd, F_SETFL, flags | O_NONBLOCK);
+
+  if (clnt_data.sockfd < 0)
+  {
+    error("ERROR opening socket");
+  }
+
+  clnt_data.server = gethostbyname(argv[1]);
+  printf("h_length: %d\n", clnt_data.server->h_length);
+  if (NULL == clnt_data.server)
+  {
+    fprintf(stderr, "ERROR, no such host\n");
+    exit(0);
+  }
+  memset(&clnt_data.serv_addr, 0, sizeof(clnt_data.serv_addr));
+  clnt_data.serv_addr.sin_family = AF_INET;
+  memcpy((char *)&clnt_data.serv_addr.sin_addr.s_addr, (char *)clnt_data.server->h_addr_list[0], clnt_data.server->h_length);
+  clnt_data.serv_addr.sin_port = htons(clnt_data.portno);
+  if (connect(clnt_data.sockfd, (struct sockaddr *)&clnt_data.serv_addr, sizeof(clnt_data.serv_addr)) < 0)
+  {
+    error("ERROR connecting");
+  }
+
+  pthread_create(&thrListen, NULL, client_listen, &clnt_data);
+  pthread_create(&thrRespond, NULL, client_respond, &clnt_data);
+
+  // Wait for the threads to finish
+  pthread_join(thrListen, &thrListen_ret);
+  pthread_join(thrRespond, &thrRespond_ret);
+
+  close(clnt_data.sockfd);
+  return 0;
+}
+
+void *client_listen(void *arg)
+{
+
+  client_data_t *cli_dat = (client_data_t *)arg;
+  int n;
+
+  while (1)
+  {
+    memset(cli_dat->rx_buff, 0, sizeof(cli_dat->rx_buff));
+    n = read(cli_dat->sockfd, cli_dat->rx_buff, 255);
+    if (n < 0)
     {
-        fprintf(stderr, "usage %s hostname port\n", argv[0]);
-        exit(0);
+      error("ERROR reading from socket");
+    }
+    printf("Server: %s\n", cli_dat->rx_buff);
+    int i = strncmp("Bye", cli_dat->rx_buff, 3);
+    if (i == 0)
+    {
+      cli_dat->tx_stop = true;
+      break;
+    }
+  }
+
+  return (void *)0;
+}
+
+void *client_respond(void *arg)
+{
+
+  client_data_t *cli_dat = (client_data_t *)arg;
+  int n;
+
+  while (1)
+  {
+
+    memset(cli_dat->tx_buff, 0, sizeof(cli_dat->tx_buff));
+    fgets(cli_dat->tx_buff, 255, stdin);
+    n = write(cli_dat->sockfd, cli_dat->tx_buff, strlen(cli_dat->tx_buff));
+
+    if (n < 0)
+    {
+      error("ERROR writing to socket");
     }
 
-    portno = atoi(argv[2]);
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if(sockfd < 0)
+    if (true == cli_dat->tx_stop)
     {
-        error("ERROR opening socket");
+      break;
     }
+  }
 
-    server = gethostbyname(argv[1]);
-    printf("h_length: %d\n", server->h_length);
-    if(NULL == server)
-    {
-        fprintf(stderr, "ERROR, no such host\n");
-        exit(0);
-    }
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    memcpy((char*)&serv_addr.sin_addr.s_addr, (char*)server->h_addr_list[0], server->h_length);
-    serv_addr.sin_port = htons(portno);
-    if( connect(sockfd, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0 )
-    {
-        error("ERROR connecting");
-    }
-    printf("Client: ");
-    while(1)
-    {
-        memset(buffer, 0, sizeof(buffer));
-        fgets(buffer, 255, stdin);
-        n = write(sockfd,buffer,strlen(buffer));
-        if(n<0)
-        {
-            error("ERROR writing to socket");
-        }
-        memset(buffer, 0, sizeof(buffer));
-        n = read(sockfd,buffer,255);
-        if(n < 0)
-        {
-            error("ERROR reading from socket");
-        }
-        printf("Server: %s\n", buffer);
-        int i = strncmp("Bye", buffer, 3);
-        if(i == 0)
-        {
-            break;
-        }
-    }
+  return (void *)0;
+}
 
-    close(sockfd);
-    return 0;
+void error(const char *msg)
+{
+  perror(msg);
+  exit(1);
 }
