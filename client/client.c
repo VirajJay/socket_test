@@ -25,8 +25,6 @@ int main(int argc, char *argv[])
 
   clnt_data.portno = atoi(argv[2]);
   clnt_data.sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  // int flags = fcntl(clnt_data.sockfd, F_GETFL, 0);
-  // fcntl(clnt_data.sockfd, F_SETFL, flags | O_NONBLOCK);
 
   if (clnt_data.sockfd < 0)
   {

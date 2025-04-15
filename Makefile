@@ -1,13 +1,13 @@
-CC = gcc
-CFLAGS = -Wall -g
+all: build
 
-all: server client
+svr:
+	$(MAKE) -C server
 
-server: server.c
-	$(CC) $(CFLAGS) server.c -o server
+clnt:
+	$(MAKE) -C client
 
-client: client.c
-	$(CC) $(CFLAGS) client.c -o client
+build: svr clnt
 
 clean:
-	rm -f server client
+	$(MAKE) -C client clean
+	$(MAKE) -C server clean
