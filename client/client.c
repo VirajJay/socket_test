@@ -14,8 +14,6 @@ int main(int argc, char *argv[])
 {
 
   pthread_t thrListen, thrRespond;
-  void *thrListen_ret;
-  void *thrRespond_ret;
 
   if (argc < 3)
   {
@@ -51,8 +49,10 @@ int main(int argc, char *argv[])
   pthread_create(&thrRespond, NULL, client_respond, &clnt_data);
 
   // Wait for the threads to finish
-  pthread_join(thrListen, &thrListen_ret);
-  pthread_join(thrRespond, &thrRespond_ret);
+  pthread_join(thrListen, NULL);
+  printf("Listen Thread terminated\n");
+  pthread_join(thrRespond, NULL);
+  printf("Response Thread terminated\n");
 
   close(clnt_data.sockfd);
   return 0;
@@ -68,16 +68,28 @@ void *client_listen(void *arg)
   {
     memset(cli_dat->rx_buff, 0, sizeof(cli_dat->rx_buff));
     n = read(cli_dat->sockfd, cli_dat->rx_buff, 255);
-    if (n < 0)
+    if (0 > n)
     {
       error("ERROR reading from socket");
     }
-    printf("Server: %s\n", cli_dat->rx_buff);
-    int i = strncmp("Bye", cli_dat->rx_buff, 3);
-    if (i == 0)
+    else if(0 == n)
     {
+      printf("Client connection broken\n");
+      /* break connection */
       cli_dat->tx_stop = true;
       break;
+    }
+    else /* n > 0 */
+    {
+      printf("Server: %s\n", cli_dat->rx_buff);
+      printf("n: %d\n", n);
+      int i = strncmp("Bye", cli_dat->rx_buff, 3);
+      if (i == 0)
+      {
+        /* break connection */
+        cli_dat->tx_stop = true;
+        break;
+      }
     }
   }
 
