@@ -1,11 +1,17 @@
 #include "server.h"
 #include <fcntl.h>
 #include <errno.h>
+#include <unistd.h>
+#include <zlib.h>
+
+#include "http_handler.h"
+#include "data_packer.h"
 
 /* --------- Function Prototypes --------- */
 void *server_listen(void *arg);
 void *server_respond(void *arg);
 void error(const char *msg);
+void printf_cl(char* str, int cli_num);
 /* ------- End Function Prototypes ------- */
 
 server_data_t svr_data;
@@ -55,18 +61,21 @@ int main(int argc, char *argv[])
       {
         if( POLLIN & svr_data.svrConn[svr_data.currClntIdx].pfd.revents )
         {
+          memset(&(svr_data.svrConn[svr_data.currClntIdx]), 0, sizeof(svr_data.svrConn[svr_data.currClntIdx]));
+
           /* connect and create thread etc... */
           svr_data.svrConn[svr_data.currClntIdx].clntSockFd = accept(svr_data.sockFd, (struct sockaddr *)&svr_data.clntAddr, &svr_data.clntLen);
-
-          flags = fcntl(svr_data.svrConn[svr_data.currClntIdx].clntSockFd, F_GETFL, 0);
-          fcntl(svr_data.svrConn[svr_data.currClntIdx].clntSockFd, F_SETFL, flags | O_NONBLOCK);
 
           if (svr_data.svrConn[svr_data.currClntIdx].clntSockFd < 0)
           {
             error("Error on Accept");
           }
+          flags = fcntl(svr_data.svrConn[svr_data.currClntIdx].clntSockFd, F_GETFL, 0);
+          fcntl(svr_data.svrConn[svr_data.currClntIdx].clntSockFd, F_SETFL, flags | O_NONBLOCK);
 
+          printf("Server Threads created. svr_data.currClntIdx - %d\n", svr_data.currClntIdx);
           svr_data.svrConn[svr_data.currClntIdx].thr_state = RUNNING;
+          svr_data.svrConn[svr_data.currClntIdx].my_idx = svr_data.currClntIdx;
           pthread_create(&(svr_data.svrConn[svr_data.currClntIdx].thrListen),  NULL, server_listen,  &svr_data.svrConn[svr_data.currClntIdx]);
           pthread_create(&(svr_data.svrConn[svr_data.currClntIdx].thrRespond), NULL, server_respond, &svr_data.svrConn[svr_data.currClntIdx]);
 
@@ -116,25 +125,88 @@ int main(int argc, char *argv[])
   return 0;
 }
 
+const char response_body_template[] = "<!DOCTYPE html>\r\n"
+"<html lang='en'>\r\n"
+"<head>\r\n"
+"    <meta charset='UTF-8'>\r\n"
+"    <meta name='viewport' content='width=device-width, initial-scale=1.0'>\r\n"
+"    <title>Welcome to My Server</title>\r\n"
+"</head>\r\n"
+"<body>\r\n"
+"    <h1>Whatup Dog!</h1>\r\n"
+"    <p>Get request worked yo!.</p>\r\n"
+"    <p>WOOOOOOOOOOOOOOOOOOOOO!</p>\r\n"
+"</body>\r\n"
+"</html>\r\n";
+
+unsigned char response_body[1024];
+
 void *server_listen(void *arg)
 {
   server_conn_t *svr_dat = (server_conn_t *)arg;
-
   int n;
+
+  /* Set up HTTP parser settings and call-back functions */
+  http_parser parser;
+  http_parser_settings settings;
+
+  http_parser_settings_init(&settings);
+  settings.on_message_begin = on_message_begin;
+  settings.on_url = on_url;
+  settings.on_status = on_status;
+  settings.on_header_field = on_header_field;
+  settings.on_header_value = on_header_value;
+  settings.on_headers_complete = on_headers_complete;
+  settings.on_body = on_body;
+  settings.on_message_complete = on_message_complete;
+
+  settings.on_chunk_header = on_chunk_header;
+  settings.on_chunk_complete = on_chunk_complete;
+
+  http_parser_init(&parser, HTTP_REQUEST);
+
   while (1)
   {
     memset(svr_dat->rx_buff, 0, sizeof(svr_dat->rx_buff));
-    n = read(svr_dat->clntSockFd, svr_dat->rx_buff, 255); /* Blocking wait */
-    if (n > 0)
+    n = read(svr_dat->clntSockFd, svr_dat->rx_buff, RX_BUFF_SIZE); /* Blocking wait */
+    if ( (0 < n) && (RX_BUFF_SIZE >= n) )
     {
-      printf("Client: %s\n", svr_dat->rx_buff);
+      printf("cli_num: %d  Start\n", svr_dat->my_idx);
+      printf("cli_num: %d  Client: %s1", svr_dat->my_idx, svr_dat->rx_buff);
+      printf("cli_num: %d  End\n", svr_dat->my_idx);
+      http_parser_execute(&parser, &settings, svr_dat->rx_buff, strlen(svr_dat->rx_buff));
+
+      memset(svr_dat->tx_buff, 0xA5, sizeof(svr_dat->tx_buff));
+      int body_len=1024;
+      gzip_compress(response_body_template, sizeof(response_body_template)-1, response_body, &body_len);
+      snprintf(svr_dat->tx_buff, TX_BUFF_SIZE, "HTTP/1.1 200 OK\r\n"
+                                                "Date: Thu, 25 Apr 2025 12:34:56 GMT\r\n"
+                                                "Server: Apache/2.4.41 (Ubuntu)\r\n"
+                                                "Content-Type: text/html; charset=UTF-8\r\n"
+                                                "Content-Encoding: gzip\r\n"
+                                                "Content-Length: %d\r\n"
+                                                "Connection: keep-alive\r\n"
+                                                "\r\n",
+                                                body_len);
+      int start_point = strlen(svr_dat->tx_buff);
+      for(int i=start_point;i<start_point+body_len;i++)
+      {
+        svr_dat->tx_buff[i] = response_body[i-start_point];
+      }
+      int write_size = data_size(svr_dat->tx_buff, TX_BUFF_SIZE, 0xA5); /* Account for null-terminator */
+      
+      write(svr_dat->clntSockFd, svr_dat->tx_buff, write_size);
+    }
+    else if(RX_BUFF_SIZE < n)
+    {
+      printf("cli_num: %d  Reception Buffer Overflow\n", svr_dat->my_idx);
     }
 
     /* Stop condition for server */
     int l = strncmp("Bye", svr_dat->rx_buff, 3);
     if (0 == l)
     {
-      printf("Stop command received to receiver thread\n");
+      printf("cli_num: %d  Stop command received to receiver thread\n", svr_dat->my_idx);
       svr_dat->thr_state = STOPPING;
       break;
     }
@@ -166,7 +238,7 @@ void *server_respond(void *arg)
     /* Stop condition, set by `server_listen` */
     if (STOPPING == svr_dat->thr_state)
     {
-      printf("Stop command received to respond thread\n");
+      printf("cli_num: %d  Stop command received to respond thread\n", svr_dat->my_idx);
       break;
     }
   }
