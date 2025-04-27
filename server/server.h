@@ -13,6 +13,8 @@
 #include <poll.h>
 
 #define MAX_CLIENT_NUM (20) /* Maximum number of clients that can connect to the server */
+#define RX_BUFF_SIZE (5094)
+#define TX_BUFF_SIZE (5094)
 
 typedef enum{
   UNUSED = 0,
@@ -27,12 +29,13 @@ typedef struct server_conn
   int clntSockFd;
 
   struct pollfd pfd;
+  int my_idx;
 
   thr_state_t thr_state;
   pthread_t thrListen;
   pthread_t thrRespond;
-  char tx_buff[500];
-  char rx_buff[500];
+  char tx_buff[TX_BUFF_SIZE];
+  char rx_buff[RX_BUFF_SIZE];
 }server_conn_t;
 
 typedef struct server_data
