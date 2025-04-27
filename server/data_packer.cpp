@@ -1,8 +1,9 @@
-#include "data_packer.h"
-#include <zlib.h>
-#include <string.h>
-
-#include <stdio.h>
+extern "C"{
+    #include <zlib.h>    
+}
+#include "data_packer.hpp"
+#include <cstring>
+#include <iostream>
 
 int data_size(char* input, int max_len, uint8_t magic_num) {
     int retVal = 0;

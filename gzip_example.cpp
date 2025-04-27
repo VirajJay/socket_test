@@ -1,6 +1,8 @@
-#include "data_packer.h"
-#include <string.h>
-#include <stdio.h>
+#include "data_packer.hpp"
+#include <iostream>
+#include <string>
+
+//using namespace std;
 
 char response_header[] = "HTTP/1.1 200 OK\r\n"
 "Date: Thu, 25 Apr 2025 12:34:56 GMT\r\n"
@@ -28,12 +30,12 @@ char response_body[] = "<!DOCTYPE html>\r\n"
 char response_body_cmp[1024];
 
 // gcc -Iserver/ server/data_packer.c gzip_example.c -lz
+// g++ -Iserver/ server/data_packer.cpp gzip_example.cpp -lz
 
 int main(int argc, char *argv[])
 {
-    
     int cmp_len;
-    gzip_compress(response_body, sizeof(response_body), response_body_cmp, &cmp_len);
+    gzip_compress(response_body, sizeof(response_body), (unsigned char*)response_body_cmp, &cmp_len);
 
     printf("Original Len: %ld\n", sizeof(response_body));
     printf("cmp_len: %d\n", cmp_len);

@@ -1,16 +1,17 @@
 #ifndef SERVER_H_
 #define SERVER_H_
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <pthread.h>
-#include <stdbool.h>
-#include <poll.h>
+extern "C"{
+  #include <unistd.h>
+  #include <sys/types.h>
+  #include <sys/socket.h>
+  #include <netinet/in.h>
+  #include <poll.h>
+}
+#include <iostream>
+#include <cstdlib>
+#include <cstring>
+#include <thread>
 
 #define MAX_CLIENT_NUM (20) /* Maximum number of clients that can connect to the server */
 #define RX_BUFF_SIZE (5094)

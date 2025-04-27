@@ -1,7 +1,9 @@
 #ifndef HTTP_HANDLER_H_
 #define HTTP_HANDLER_H_
 
-#include "http_parser.h"
+extern "C"{
+    #include "http_parser.h"
+}
 
 /* ---------- Function Prototypes ---------- */
 int on_message_begin(http_parser *parser);

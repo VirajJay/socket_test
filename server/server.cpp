@@ -1,11 +1,15 @@
-#include "server.h"
-#include <fcntl.h>
-#include <errno.h>
-#include <unistd.h>
-#include <zlib.h>
+extern "C"{
+  #include <fcntl.h>
+  #include <unistd.h>
+  #include <zlib.h>
+}
 
-#include "http_handler.h"
-#include "data_packer.h"
+#include "server.hpp"
+#include "http_handler.hpp"
+#include "data_packer.hpp"
+#include <cerrno>
+
+using namespace std;
 
 /* --------- Function Prototypes --------- */
 void *server_listen(void *arg);

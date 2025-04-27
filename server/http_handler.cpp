@@ -1,6 +1,6 @@
-#include <stdio.h>
-#include <string.h>
-#include "http_handler.h"
+#include "http_handler.hpp"
+#include <iostream>
+#include <cstring>
 
 int on_message_begin(http_parser *parser) {
     printf("Add code to on_message_begin\n");
