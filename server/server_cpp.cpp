@@ -2,8 +2,8 @@ extern "C"{
     #include <fcntl.h>
     #include <unistd.h>
     #include <zlib.h>
+    #include "http_handler.hpp"
 }  
-// #include "http_handler.hpp"
 #include "data_packer.hpp"
 #include "server_cpp.hpp"
 #include <iostream>
@@ -11,7 +11,7 @@ extern "C"{
 #include <cerrno>
 #include <chrono>
 
-// g++ -Wall server/server_cpp.cpp server/data_packer.cpp -lz
+// g++ -Wall Externals/http_parser/http_parser.o server/http_handler.cpp server/server_cpp.cpp server/data_packer.cpp -IExternals/http_parser -Iserver -lz
 
 /* --------- Function Prototypes --------- */
 void error(const char *msg);
@@ -19,13 +19,14 @@ void error(const char *msg);
 
 using namespace std;
 
-server_data_t svr_data;
+int on_message_beginlol(http_parser *parser) {
+    printf("Add code to on_message_begin\n");
+    return 0;
+}
 
-int main(int argc, char *argv[]){
-  
-    /* Zero-out all server data */
-    memset(&svr_data, 0, sizeof(svr_data));
-  
+int main(int argc, char *argv[]){  
+    server_data svr_data;
+    
     if (argc < 2)
     {
       fprintf(stderr, "ERROR, no port provided\n");
@@ -75,10 +76,76 @@ int main(int argc, char *argv[]){
     return 0;
 }
 
+int Session::on_message_begin(http_parser *parser) {
+    printf("Add code to on_message_begin\n");
+    return 0;
+}
+
+int Session::on_url(http_parser *parser, const char *at, size_t length) {
+    printf("URL: %.*s\n", (int)length, at);
+    return 0;
+}
+
+int Session::on_status(http_parser *parser, const char *at, size_t length) {
+    printf("Add code to on_status\n");
+    return 0;
+}
+
+int Session::on_header_field(http_parser *parser, const char *at, size_t length) {
+    printf("Header field: %.*s\n", (int)length, at);
+    return 0;
+}
+
+int Session::on_header_value(http_parser *parser, const char *at, size_t length) {
+    printf("Header value: %.*s\n", (int)length, at);
+    return 0;
+}
+
+int Session::on_headers_complete(http_parser *parser) {
+    printf("Add code to on_headers_complete\n");
+    return 0;
+}
+
+int Session::on_body(http_parser *parser, const char *at, size_t length) {
+    printf("Body: %.*s\n", (int)length, at);
+    return 0;
+}
+
+int Session::on_message_complete(http_parser *parser) {
+    printf("Message complete!\n");
+    return 0;
+}
+
+int Session::on_chunk_header(http_parser *parser){
+    printf("Add code to on_chunk_header\n");
+    return 0;
+}
+
+int Session::on_chunk_complete(http_parser *parser){
+    printf("Add code to on_chunk_complete\n");
+    return 0;
+}
+
 Session::Session(int sockfd){
     printf("Session Created\n");
     clntSockFd = sockfd;
     killSesh = false;
+
+    http_parser_settings_init(&(this->settings));
+    settings.on_message_begin = on_message_begin;
+    settings.on_url = Session::on_url;
+    settings.on_status = Session::on_status;
+    settings.on_header_field = Session::on_header_field;
+    settings.on_header_value = Session::on_header_value;
+    settings.on_headers_complete = Session::on_headers_complete;
+    settings.on_body = Session::on_body;
+    settings.on_message_complete = Session::on_message_complete;
+  
+    settings.on_chunk_header = Session::on_chunk_header;
+    settings.on_chunk_complete = Session::on_chunk_complete;
+  
+    http_parser_init(&parser, HTTP_REQUEST);
+
     seshThread = thread(&Session::run, this);
 }
 

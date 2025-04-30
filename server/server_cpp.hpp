@@ -8,6 +8,7 @@ extern "C"{
     #include <netinet/in.h>
     #include <poll.h>
 }
+#include "http_parser.h"
 #include <iostream>
 #include <cstdlib>
 #include <cstring>
@@ -30,9 +31,23 @@ public:
     // struct pollfd pfd;
     char tx_buff[TX_BUFF_SIZE];
     char rx_buff[RX_BUFF_SIZE];
+    http_parser parser;
+    http_parser_settings settings;
 
     Session(int sockfd);
     ~Session();
+
+    /* HTTP Handlers */
+    int on_message_begin(http_parser *parser);
+    int on_url(http_parser *parser, const char *at, size_t length);
+    int on_status(http_parser *parser, const char *at, size_t length);
+    int on_header_field(http_parser *parser, const char *at, size_t length);
+    int on_header_value(http_parser *parser, const char *at, size_t length);
+    int on_headers_complete(http_parser *parser);
+    int on_body(http_parser *parser, const char *at, size_t length);
+    int on_message_complete(http_parser *parser);
+    int on_chunk_header(http_parser *parser);
+    int on_chunk_complete(http_parser *parser);
 
     void run();
 
