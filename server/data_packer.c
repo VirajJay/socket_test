@@ -13,8 +13,6 @@ int data_size(char* input, int max_len, uint8_t magic_num) {
             (char)magic_num == input[i+2] &&
             (char)magic_num == input[i+3] &&
             (char)magic_num == input[i+4]){
-            printf("retVal: %d\n", retVal);
-            printf("next one: %x\n", input[i+5]);
             break;
         }else{
             retVal++;
