@@ -4,16 +4,17 @@
 #include <unistd.h>
 #include <zlib.h>
 
-#include "http_handler.h"
 #include "data_packer.h"
 
 /* --------- Function Prototypes --------- */
-void *server_listen(void *arg);
-void *server_respond(void *arg);
+void *thr_svr(void *arg);
+int server_listen(server_conn_t *svr_dat);
+int server_respond(server_conn_t *svr_dat);
 void error(const char *msg);
 void printf_cl(char* str, int cli_num);
-/* ------- End Function Prototypes ------- */
 
+Std_Return getPage(char* file_path, char* file_content, int file_content_len);
+/* ------- End Function Prototypes ------- */
 server_data_t svr_data;
 
 int main(int argc, char *argv[])
@@ -76,8 +77,7 @@ int main(int argc, char *argv[])
           printf("Server Threads created. svr_data.currClntIdx - %d\n", svr_data.currClntIdx);
           svr_data.svrConn[svr_data.currClntIdx].thr_state = RUNNING;
           svr_data.svrConn[svr_data.currClntIdx].my_idx = svr_data.currClntIdx;
-          pthread_create(&(svr_data.svrConn[svr_data.currClntIdx].thrListen),  NULL, server_listen,  &svr_data.svrConn[svr_data.currClntIdx]);
-          pthread_create(&(svr_data.svrConn[svr_data.currClntIdx].thrRespond), NULL, server_respond, &svr_data.svrConn[svr_data.currClntIdx]);
+          pthread_create(&(svr_data.svrConn[svr_data.currClntIdx].thrSvr), NULL, thr_svr, &svr_data.svrConn[svr_data.currClntIdx]);
 
           /* Find the next available client index */
           found_new_idx = false;
@@ -108,8 +108,7 @@ int main(int argc, char *argv[])
       {
         printf("Main thread closing client %d...\n", i);
         // Wait for the threads to finish
-        pthread_join(svr_data.svrConn[i].thrListen, NULL);
-        pthread_join(svr_data.svrConn[i].thrRespond, NULL);
+        pthread_join(svr_data.svrConn[i].thrSvr, NULL);
         svr_data.svrConn[i].thr_state = JOINED;
         printf("Successfully closed client %d\n", i);
 
@@ -125,125 +124,142 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-const char response_body_template[] = "<!DOCTYPE html>\r\n"
-"<html lang='en'>\r\n"
-"<head>\r\n"
-"    <meta charset='UTF-8'>\r\n"
-"    <meta name='viewport' content='width=device-width, initial-scale=1.0'>\r\n"
-"    <title>Welcome to My Server</title>\r\n"
-"</head>\r\n"
-"<body>\r\n"
-"    <h1>Whatup Dog!</h1>\r\n"
-"    <p>Get request worked yo!.</p>\r\n"
-"    <p>WOOOOOOOOOOOOOOOOOOOOO!</p>\r\n"
-"</body>\r\n"
-"</html>\r\n";
+Std_Return getPage(char* file_path, char* file_content, int file_content_len)
+{
+  Std_Return retVal = E_OK;
+  FILE* file;
+  int ch;
+  int ch_count = 0;
+  file = fopen(file_path, "r");
+  if(NULL == file)
+  {
+    retVal = -1;
+    error("");
+  }
 
-unsigned char response_body[1024];
+  while(true)
+  {
+    ch = fgetc(file);
+    if( (EOF ==ch) || (file_content_len <= ch_count) )
+    {
+      break;
+    }
+    else
+    {
+      file_content[ch_count] = (char) ch;
+    }
+    ch_count++;
+  }
 
-void *server_listen(void *arg)
+  return retVal;
+}
+
+void *thr_svr(void *arg)
 {
   server_conn_t *svr_dat = (server_conn_t *)arg;
-  int n;
+
+  svr_dat->httpprsr.data = svr_dat;
 
   /* Set up HTTP parser settings and call-back functions */
-  http_parser parser;
-  http_parser_settings settings;
+  http_parser_settings_init(&svr_dat->httpprsr_settings);
+  svr_dat->httpprsr_settings.on_url = on_url;
 
-  http_parser_settings_init(&settings);
-  settings.on_message_begin = on_message_begin;
-  settings.on_url = on_url;
-  settings.on_status = on_status;
-  settings.on_header_field = on_header_field;
-  settings.on_header_value = on_header_value;
-  settings.on_headers_complete = on_headers_complete;
-  settings.on_body = on_body;
-  settings.on_message_complete = on_message_complete;
+  http_parser_init(&svr_dat->httpprsr, HTTP_REQUEST);
 
-  settings.on_chunk_header = on_chunk_header;
-  settings.on_chunk_complete = on_chunk_complete;
-
-  http_parser_init(&parser, HTTP_REQUEST);
-
-  while (1)
-  {
-    memset(svr_dat->rx_buff, 0, sizeof(svr_dat->rx_buff));
-    n = read(svr_dat->clntSockFd, svr_dat->rx_buff, RX_BUFF_SIZE); /* Blocking wait */
-    if ( (0 < n) && (RX_BUFF_SIZE >= n) )
+  while(1){
+    server_listen(svr_dat);
+    if(E_OK != server_respond(svr_dat))
     {
-      printf("cli_num: %d  Start\n", svr_dat->my_idx);
-      printf("cli_num: %d  Client: %s1", svr_dat->my_idx, svr_dat->rx_buff);
-      printf("cli_num: %d  End\n", svr_dat->my_idx);
-      http_parser_execute(&parser, &settings, svr_dat->rx_buff, strlen(svr_dat->rx_buff));
-
-      memset(svr_dat->tx_buff, 0xA5, sizeof(svr_dat->tx_buff));
-      int body_len=1024;
-      gzip_compress(response_body_template, sizeof(response_body_template)-1, response_body, &body_len);
-      snprintf(svr_dat->tx_buff, TX_BUFF_SIZE, "HTTP/1.1 200 OK\r\n"
-                                                "Date: Thu, 25 Apr 2025 12:34:56 GMT\r\n"
-                                                "Server: Apache/2.4.41 (Ubuntu)\r\n"
-                                                "Content-Type: text/html; charset=UTF-8\r\n"
-                                                "Content-Encoding: gzip\r\n"
-                                                "Content-Length: %d\r\n"
-                                                "Connection: keep-alive\r\n"
-                                                "\r\n",
-                                                body_len);
-      int start_point = strlen(svr_dat->tx_buff);
-      for(int i=start_point;i<start_point+body_len;i++)
-      {
-        svr_dat->tx_buff[i] = response_body[i-start_point];
-      }
-      int write_size = data_size(svr_dat->tx_buff, TX_BUFF_SIZE, 0xA5); /* Account for null-terminator */
-      
-      write(svr_dat->clntSockFd, svr_dat->tx_buff, write_size);
-    }
-    else if(RX_BUFF_SIZE < n)
-    {
-      printf("cli_num: %d  Reception Buffer Overflow\n", svr_dat->my_idx);
-    }
-
-    /* Stop condition for server */
-    int l = strncmp("Bye", svr_dat->rx_buff, 3);
-    if (0 == l)
-    {
-      printf("cli_num: %d  Stop command received to receiver thread\n", svr_dat->my_idx);
-      svr_dat->thr_state = STOPPING;
       break;
     }
   }
 
-  return (void *)0;
+  return (void*)0;
 }
 
-void *server_respond(void *arg)
+int server_listen(server_conn_t *svr_dat)
 {
-  server_conn_t *svr_dat = (server_conn_t *)arg;
+  int retVal = E_OK;
+  int n;
+
+  memset(svr_dat->rx_buff, 0, sizeof(svr_dat->rx_buff));
+  n = read(svr_dat->clntSockFd, svr_dat->rx_buff, RX_BUFF_SIZE); /* Blocking wait */
+  if ( (0 < n) && (RX_BUFF_SIZE >= n) )
+  {
+    http_parser_execute(&svr_dat->httpprsr, &svr_dat->httpprsr_settings, svr_dat->rx_buff, strlen(svr_dat->rx_buff));
+
+    /* Get file location from URL */
+    char tmpPath_str[1024*2];
+    snprintf(tmpPath_str, sizeof(tmpPath_str)-1, "server/pages%s", svr_dat->url);
+    printf("\nURL: %s\n", tmpPath_str);
+
+    /* READ HTML FILE */
+    getPage(tmpPath_str, svr_dat->response_body_template, FILE_SIZE_MAX);
+
+    /* PUBLISH HTML FILE */
+    memset(svr_dat->tx_buff, 0xA5, sizeof(svr_dat->tx_buff));
+    int body_len=FILE_SIZE_MAX;
+    gzip_compress(svr_dat->response_body_template, sizeof(svr_dat->response_body_template)-1, svr_dat->response_body, &body_len);
+    snprintf(svr_dat->tx_buff, TX_BUFF_SIZE, "HTTP/1.1 200 OK\r\n"
+                                              "Date: Thu, 25 Apr 2025 12:34:56 GMT\r\n"
+                                              "Server: Apache/2.4.41 (Ubuntu)\r\n"
+                                              "Content-Type: text/html; charset=UTF-8\r\n"
+                                              "Content-Encoding: gzip\r\n"
+                                              "Content-Length: %d\r\n"
+                                              "Connection: keep-alive\r\n"
+                                              "\r\n",
+                                              body_len);
+    int start_point = strlen(svr_dat->tx_buff);
+    for(int i=start_point;i<start_point+body_len;i++)
+    {
+      svr_dat->tx_buff[i] = svr_dat->response_body[i-start_point];
+    }
+    int write_size = data_size(svr_dat->tx_buff, TX_BUFF_SIZE, 0xA5); /* Account for null-terminator */
+    
+    write(svr_dat->clntSockFd, svr_dat->tx_buff, write_size);
+  }
+  else if(RX_BUFF_SIZE < n)
+  {
+    printf("cli_num: %d  Reception Buffer Overflow\n", svr_dat->my_idx);
+  }
+
+  /* Stop condition for server */
+  int l = strncmp("Bye", svr_dat->rx_buff, 3);
+  if (0 == l)
+  {
+    printf("cli_num: %d  Stop command received to receiver thread\n", svr_dat->my_idx);
+    svr_dat->thr_state = STOPPING;
+  }
+
+  return retVal;
+}
+
+int server_respond(server_conn_t *svr_dat)
+{
+  int retVal = E_OK;
   int n;
 
   // Set stdin to non-blocking
   int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
   fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
 
-  while (1)
-  {
-    /* Wait for user-input into the tx-buffer */
-    if (fgets(svr_dat->tx_buff, sizeof(svr_dat->tx_buff), stdin) != NULL) {
-      n = write(svr_dat->clntSockFd, svr_dat->tx_buff, strlen(svr_dat->tx_buff));
-      if (n < 0)
-      {
-        error("ERROR on Writing.");
-      }
-    }
-
-    /* Stop condition, set by `server_listen` */
-    if (STOPPING == svr_dat->thr_state)
+  /* Wait for user-input into the tx-buffer */
+  if (fgets(svr_dat->tx_buff, sizeof(svr_dat->tx_buff), stdin) != NULL) {
+    n = write(svr_dat->clntSockFd, svr_dat->tx_buff, strlen(svr_dat->tx_buff));
+    if (n < 0)
     {
-      printf("cli_num: %d  Stop command received to respond thread\n", svr_dat->my_idx);
-      break;
+      error("ERROR on Writing.");
     }
   }
 
-  return (void *)0;
+  /* Stop condition, set by `server_listen` */
+  if (STOPPING == svr_dat->thr_state)
+  {
+    printf("cli_num: %d  Stop command received to respond thread\n", svr_dat->my_idx);
+    retVal = E_NOT_OK;
+  }
+
+  return retVal;
 }
 
 void error(const char *msg)

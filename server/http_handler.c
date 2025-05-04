@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "http_handler.h"
+#include "server.h"
 
 int on_message_begin(http_parser *parser) {
     printf("Add code to on_message_begin\n");
@@ -8,7 +9,9 @@ int on_message_begin(http_parser *parser) {
 }
 
 int on_url(http_parser *parser, const char *at, size_t length) {
-    printf("URL: %.*s\n", (int)length, at);
+    server_conn_t *ctx = (server_conn_t*) parser->data;
+    
+    memcpy(ctx->url, at, length);
     return 0;
 }
 
