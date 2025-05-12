@@ -7,6 +7,8 @@ extern "C"{
 #include <libavutil/imgutils.h>
 };
 
+extern int frame_proc(AVFrame *frame, uint8_t *raw_rgb_frame, int raw_rgb_frame_len, int frame_width, int frame_height);
+
 int main(int argc, char* argv[])
 {
     time_t timestamp;
@@ -23,20 +25,20 @@ int main(int argc, char* argv[])
 
     // Open video file
     AVFormatContext *fmt_ctx = NULL;
-    printf("sizeof(AVFormatContext): %ld bytes\n", sizeof(AVFormatContext));
+    // printf("sizeof(AVFormatContext): %ld bytes\n", sizeof(AVFormatContext));
     retVal = avformat_open_input(&fmt_ctx, file_name, NULL, NULL);
-    printf("avformat_open_input retVal: %d\n", retVal);
+    // printf("avformat_open_input retVal: %d\n", retVal);
 
     // Retrieve stream information
     retVal = avformat_find_stream_info(fmt_ctx, NULL);
-    printf("avformat_find_stream_info retVal: %d\n", retVal);
+    // printf("avformat_find_stream_info retVal: %d\n", retVal);
 
     // Find the first video stream
     for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
         if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             video_stream_index = i;
             codec_par = fmt_ctx->streams[i]->codecpar;
-            printf("Video Stream: %d\n", i);
+            // printf("Video Stream: %d\n", i);
             break;
         }
     }
@@ -45,15 +47,15 @@ int main(int argc, char* argv[])
 
     // Find decoder
     decoder = avcodec_find_decoder(codec_par->codec_id);
-    printf("Wrapper_Name: %s\n", decoder->name);
-    printf("Wrapper_Name: %s\n", decoder->long_name);
+    // printf("Wrapper_Name: %s\n", decoder->name);
+    // printf("Wrapper_Name: %s\n", decoder->long_name);
 
     codec_ctx = avcodec_alloc_context3(decoder);
     retVal = avcodec_parameters_to_context(codec_ctx, codec_par);
-    printf("avcodec_parameters_to_context retVal: %d\n", retVal);
+    // printf("avcodec_parameters_to_context retVal: %d\n", retVal);
 
     retVal = avcodec_open2(codec_ctx, decoder, NULL);
-    printf("avcodec_open2 retVal: %d\n", retVal);
+    // printf("avcodec_open2 retVal: %d\n", retVal);
 
     // Prepare to convert frames to RGB
     struct SwsContext *sws_ctx = sws_getContext(
@@ -70,7 +72,7 @@ int main(int argc, char* argv[])
 
     AVPacket *packet = av_packet_alloc();
 
-    printf("codec_ctx->width: %d\ncodec_ctx->height: %d\n", codec_ctx->width, codec_ctx->height);
+    // printf("codec_ctx->width: %d\ncodec_ctx->height: %d\n", codec_ctx->width, codec_ctx->height);
     uint8_t raw_rgb_frame[codec_ctx->width * codec_ctx->height * 3];
 
     // 1. Convert your desired time (in seconds) to timestamp units
@@ -92,7 +94,7 @@ int main(int argc, char* argv[])
                 codec_ctx->height, rgb_frame->data, rgb_frame->linesize);
                 // Now rgb_frame contains raw RGB24 data
                 // You can write it to a file or process it
-                printf("Decoded frame %ld\n", codec_ctx->frame_num);
+                // printf("Decoded frame %ld\n", codec_ctx->frame_num);
 
                 /*
                 int y_index = y * y_stride + x;
@@ -109,25 +111,34 @@ int main(int argc, char* argv[])
 
                 FILE *f = fopen("frame.ppm", "wb");
                 fprintf(f, "P6\n%d %d\n255\n", codec_ctx->width, codec_ctx->height);
+                // printf("frame->linesize[0]: %d\n", frame->linesize[0]);
+                // printf("frame->linesize[1]: %d\n", frame->linesize[1]);
+                // printf("frame->linesize[2]: %d\n", frame->linesize[2]);
+                // printf("codec_ctx->width: %d\n", codec_ctx->width);
 
-                for(int i=0;i<codec_ctx->width * codec_ctx->height;i++)
-                {
-                    uint8_t Y = frame->data[0][((int)i/codec_ctx->width) * frame->linesize[0] + (i%codec_ctx->width)];
-                    uint8_t U = frame->data[1][(((int)i/codec_ctx->width)/2) * frame->linesize[1] + ((i%codec_ctx->width)/2)];
-                    uint8_t V = frame->data[2][(((int)i/codec_ctx->width)/2) * frame->linesize[2] + ((i%codec_ctx->width)/2)];
+                // for(int i=0;i<codec_ctx->width * codec_ctx->height;i++)
+                // {
+                //     uint8_t Y = frame->data[0][((int)i/codec_ctx->width) * frame->linesize[0] + (i%codec_ctx->width)];
+                //     uint8_t U = frame->data[1][(((int)i/codec_ctx->width)/2) * frame->linesize[1] + ((i%codec_ctx->width)/2)];
+                //     uint8_t V = frame->data[2][(((int)i/codec_ctx->width)/2) * frame->linesize[2] + ((i%codec_ctx->width)/2)];
                     
-                    red   = Y + 1.402    * (V - 128);
-                    green = Y - 0.344136 * (U - 128) - 0.714136 * (V - 128);
-                    blue  = Y + 1.772    * (U - 128);
-                    red = red < 0 ? 0 : (red > 255 ? 255 : red);
-                    green = green < 0 ? 0 : (green > 255 ? 255 : green);
-                    blue = blue < 0 ? 0 : (blue > 255 ? 255 : blue);
-                    raw_rgb_frame[(i*3) + 0] = red;
-                    raw_rgb_frame[(i*3) + 1] = green;
-                    raw_rgb_frame[(i*3) + 2] = blue;
-                }
+                //     red   = Y + 1.402    * (V - 128);
+                //     green = Y - 0.344136 * (U - 128) - 0.714136 * (V - 128);
+                //     blue  = Y + 1.772    * (U - 128);
+                //     red = red < 0 ? 0 : (red > 255 ? 255 : red);
+                //     green = green < 0 ? 0 : (green > 255 ? 255 : green);
+                //     blue = blue < 0 ? 0 : (blue > 255 ? 255 : blue);
+                //     raw_rgb_frame[(i*3) + 0] = red;
+                //     raw_rgb_frame[(i*3) + 1] = green;
+                //     raw_rgb_frame[(i*3) + 2] = blue;
 
-                // fwrite(rgb_frame->data[0], 1, codec_ctx->width * codec_ctx->height * 3, f);
+                //     raw_rgb_frame[(i*3) + 0] = 0;
+                //     raw_rgb_frame[(i*3) + 1] = 255;
+                //     raw_rgb_frame[(i*3) + 2] = 0;
+                // }
+
+                frame_proc(frame, raw_rgb_frame, sizeof(raw_rgb_frame), codec_ctx->width, codec_ctx->height);
+
                 fwrite(raw_rgb_frame, 1, codec_ctx->width * codec_ctx->height * 3, f);
                 fclose(f);
 
