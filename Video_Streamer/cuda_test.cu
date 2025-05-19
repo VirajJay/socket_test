@@ -1,6 +1,7 @@
 #include <cuda_runtime.h>
 #include <iostream>
 #include <cstdint>
+#include <chrono>
 extern "C"{
 #include <libavformat/avformat.h>
 }
@@ -33,36 +34,47 @@ int frame_proc(AVFrame *frame, uint8_t *raw_rgb_frame, int raw_rgb_frame_len, in
     int size = frame_width * frame_height * 3;
 
     int total_elements = frame_width * frame_height;
-    int threads_per_block = 256;
+    int threads_per_block = 1024;
 
     if(raw_rgb_frame_len == size){
         /* Y-Frame */
+        auto start_setup = std::chrono::high_resolution_clock::now();
         uint8_t *y_frame;
         cudaMalloc(&y_frame, frame_height*frame->linesize[0]);
         cudaMemcpy(y_frame, frame->data[0], frame_height*frame->linesize[0], cudaMemcpyHostToDevice);
-        printf("frame->linesize[0]: %d\n", frame->linesize[0]);
+        // printf("frame->linesize[0]: %d\n", frame->linesize[0]);
         /* U-Frame */
         uint8_t *u_frame;
         cudaMalloc(&u_frame, frame_height*frame->linesize[1]);
         cudaMemcpy(u_frame, frame->data[1], frame_height*frame->linesize[1], cudaMemcpyHostToDevice);
-        printf("frame->linesize[1]: %d\n", frame->linesize[1]);
+        // printf("frame->linesize[1]: %d\n", frame->linesize[1]);
         /* V-Frame */
         uint8_t *v_frame;
         cudaMalloc(&v_frame, frame_height*frame->linesize[2]);
         cudaMemcpy(v_frame, frame->data[2], frame_height*frame->linesize[2], cudaMemcpyHostToDevice);
-        printf("frame->linesize[2]: %d\n", frame->linesize[2]);
+        // printf("frame->linesize[2]: %d\n", frame->linesize[2]);
 
         uint8_t* d_data;
         cudaMalloc(&d_data, size);
+        auto finish_setup = std::chrono::high_resolution_clock::now();
+        auto start_setup_us = std::chrono::duration_cast<std::chrono::microseconds>(start_setup.time_since_epoch()).count();
+        auto finish_setup_us  = std::chrono::duration_cast<std::chrono::microseconds>(finish_setup.time_since_epoch()).count();
+        printf("Time taken in milliseconds (cuda_setup): %f\n", (float) (finish_setup_us - start_setup_us)/1000);
 
         int num_blocks = total_elements / threads_per_block;
 
         // Launch kernel
+        auto start = std::chrono::high_resolution_clock::now();
         frame_proc_gpu<<<num_blocks, threads_per_block>>>(y_frame, frame->linesize[0],
                                                             u_frame, frame->linesize[1],
                                                             v_frame, frame->linesize[2],
                                                             d_data, frame_width, frame_height);
         cudaDeviceSynchronize();
+        auto stop = std::chrono::high_resolution_clock::now();
+        // Convert the time point to microseconds
+        auto start_us = std::chrono::duration_cast<std::chrono::microseconds>(start.time_since_epoch()).count();
+        auto stop_us  = std::chrono::duration_cast<std::chrono::microseconds>(stop.time_since_epoch()).count();
+        printf("Time taken in milliseconds (parellel process): %f\n", (float) (stop_us - start_us)/1000);
 
         // Copy result back
         cudaMemcpy(raw_rgb_frame, d_data, size, cudaMemcpyDeviceToHost);
