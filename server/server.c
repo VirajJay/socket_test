@@ -8,7 +8,7 @@
 
 /* --------- Function Prototypes --------- */
 void *thr_svr(void *arg);
-int server_listen(server_conn_t *svr_dat);
+Std_Return server_listen(server_conn_t *svr_dat);
 int server_respond(server_conn_t *svr_dat);
 void error(const char *msg);
 void printf_cl(char* str, int cli_num);
@@ -133,22 +133,23 @@ Std_Return getPage(char* file_path, char* file_content, int file_content_len)
   file = fopen(file_path, "r");
   if(NULL == file)
   {
-    retVal = -1;
-    error("");
-  }
-
-  while(true)
-  {
-    ch = fgetc(file);
-    if( (EOF ==ch) || (file_content_len <= ch_count) )
+    /* File does not exist */
+    retVal = E_FILE_NOT_FOUND;
+  }else{
+    while(true)
     {
-      break;
+      ch = fgetc(file);
+      if( (EOF ==ch) || (file_content_len <= ch_count) )
+      {
+        break;
+      }
+      else
+      {
+        file_content[ch_count] = (char) ch;
+      }
+      ch_count++;
     }
-    else
-    {
-      file_content[ch_count] = (char) ch;
-    }
-    ch_count++;
+    fclose(file);
   }
 
   return retVal;
@@ -177,13 +178,17 @@ void *thr_svr(void *arg)
   return (void*)0;
 }
 
-int server_listen(server_conn_t *svr_dat)
+Std_Return server_listen(server_conn_t *svr_dat)
 {
-  int retVal = E_OK;
+  Std_Return retVal = E_OK;
   int n;
 
   memset(svr_dat->rx_buff, 0, sizeof(svr_dat->rx_buff));
-  n = read(svr_dat->clntSockFd, svr_dat->rx_buff, RX_BUFF_SIZE); /* Blocking wait */
+  n = read(svr_dat->clntSockFd, svr_dat->rx_buff, RX_BUFF_SIZE);
+  if(n>0){
+    printf("Response: \n%s\n", svr_dat->rx_buff);
+  }
+  
   if ( (0 < n) && (RX_BUFF_SIZE >= n) )
   {
     http_parser_execute(&svr_dat->httpprsr, &svr_dat->httpprsr_settings, svr_dat->rx_buff, strlen(svr_dat->rx_buff));
@@ -191,32 +196,41 @@ int server_listen(server_conn_t *svr_dat)
     /* Get file location from URL */
     char tmpPath_str[1024*2];
     snprintf(tmpPath_str, sizeof(tmpPath_str)-1, "server/pages%s", svr_dat->url);
-    printf("\nURL: %s\n", tmpPath_str);
 
     /* READ HTML FILE */
-    getPage(tmpPath_str, svr_dat->response_body_template, FILE_SIZE_MAX);
-
-    /* PUBLISH HTML FILE */
-    memset(svr_dat->tx_buff, 0xA5, sizeof(svr_dat->tx_buff));
-    int body_len=FILE_SIZE_MAX;
-    gzip_compress(svr_dat->response_body_template, sizeof(svr_dat->response_body_template)-1, svr_dat->response_body, &body_len);
-    snprintf(svr_dat->tx_buff, TX_BUFF_SIZE, "HTTP/1.1 200 OK\r\n"
-                                              "Date: Thu, 25 Apr 2025 12:34:56 GMT\r\n"
-                                              "Server: Apache/2.4.41 (Ubuntu)\r\n"
-                                              "Content-Type: text/html; charset=UTF-8\r\n"
-                                              "Content-Encoding: gzip\r\n"
-                                              "Content-Length: %d\r\n"
-                                              "Connection: keep-alive\r\n"
-                                              "\r\n",
-                                              body_len);
-    int start_point = strlen(svr_dat->tx_buff);
-    for(int i=start_point;i<start_point+body_len;i++)
-    {
-      svr_dat->tx_buff[i] = svr_dat->response_body[i-start_point];
+    if( retVal == getPage(tmpPath_str, svr_dat->response_body_template, FILE_SIZE_MAX) ){
+      switch(retVal){
+        case E_FILE_NOT_FOUND: /* File doesnt exist */
+          printf("File not found. %s\n", tmpPath_str);
+          break;
+        default:
+          break;
+      }
     }
-    int write_size = data_size(svr_dat->tx_buff, TX_BUFF_SIZE, 0xA5); /* Account for null-terminator */
-    
-    write(svr_dat->clntSockFd, svr_dat->tx_buff, write_size);
+
+    if(E_OK == retVal){
+      /* PUBLISH HTML FILE */
+      memset(svr_dat->tx_buff, 0xA5, sizeof(svr_dat->tx_buff));
+      int body_len=FILE_SIZE_MAX;
+      gzip_compress(svr_dat->response_body_template, sizeof(svr_dat->response_body_template)-1, svr_dat->response_body, &body_len);
+      snprintf(svr_dat->tx_buff, TX_BUFF_SIZE, "HTTP/1.1 200 OK\r\n"
+                                                "Date: Thu, 25 Apr 2025 12:34:56 GMT\r\n"
+                                                "Server: Apache/2.4.41 (Ubuntu)\r\n"
+                                                "Content-Type: text/html; charset=UTF-8\r\n"
+                                                "Content-Encoding: gzip\r\n"
+                                                "Content-Length: %d\r\n"
+                                                "Connection: keep-alive\r\n"
+                                                "\r\n",
+                                                body_len);
+      int start_point = strlen(svr_dat->tx_buff);
+      for(int i=start_point;i<start_point+body_len;i++)
+      {
+        svr_dat->tx_buff[i] = svr_dat->response_body[i-start_point];
+      }
+      int write_size = data_size(svr_dat->tx_buff, TX_BUFF_SIZE, 0xA5); /* Account for null-terminator */
+      
+      write(svr_dat->clntSockFd, svr_dat->tx_buff, write_size);
+    }
   }
   else if(RX_BUFF_SIZE < n)
   {

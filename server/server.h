@@ -30,6 +30,7 @@ typedef enum{
 typedef enum{
   E_OK=0,
   E_NOT_OK,
+  E_FILE_NOT_FOUND,
 }Std_Return;
 
 typedef struct server_conn
